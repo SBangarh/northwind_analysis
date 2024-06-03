@@ -1,0 +1,138 @@
+--Empty Tables:
+-- customercustomerdemo; Customerdemogrpahics; Student_n; product_groups; public_temp
+-- temp; temp1; test
+
+--Problem statement: The executives want to better understand product breakdown
+-- by category and furthermore by revenue and profit margin.
+-- They also want to see the number of customers and revenue per country
+-- as well as the top selling product.
+
+-- See data for products, customers, suppliers
+select *
+from products;
+
+--Check for duplicates
+select productid, count(*)
+from products
+group by productid
+having count(*) > 1;
+
+
+--Check for nulls in products; will not check all for sake of brevity
+select productname, quantityperunit, unitprice, unitsinstock, unitsonorder,
+    reorderlevel
+from products
+where productname is null
+    or quantityperunit is null
+    or unitprice is null
+    or unitsinstock is null
+    or unitsonorder is null
+    or reorderlevel is null;
+
+-- Discontinued and non-discontinued products
+select count(productname) as Discontinued, (
+    select count(productname) as Current
+    from products
+    where discontinued = 0)
+from products
+where discontinued = 1;
+
+-- Categories with most products
+select categoryname, count(p.categoryid) as Product_Count
+from products p
+join categories c on p.categoryid = c.categoryid
+where discontinued = 0
+group by categoryname
+order by Product_Count desc;
+
+-- Products with highest Revenue
+SELECT ProductName,
+    categoryname,
+    round(sum((od.unitprice * (1 - discount)) * quantity)) AS Revenue
+FROM products p
+join order_details od on p.productid = od.productid
+join categories c on p.categoryid=c.categoryid
+group by productname, categoryname
+ORDER BY Revenue DESC;
+
+--Categories with highest revenue 
+select categoryname, 
+    round(sum((od.unitprice * (1 - discount)) * quantity)) AS total_Revenue
+from categories c
+join products p on c.categoryid=p.categoryid
+join order_details od on p.productid=od.productid
+group by categoryname
+order by total_revenue DESC;
+
+--Beverages had the highest revenue ytd
+
+--Get revenue per year per category
+select categoryname,
+    extract(year from o.orderdate) as fiscal_year,
+    round(sum((od.unitprice * (1 - discount)) * quantity)) AS total_Revenue
+from categories c
+join products p on c.categoryid=p.categoryid
+join order_details od on p.productid=od.productid
+join orders o on od.orderid=o.orderid
+group by categoryname, fiscal_year
+order by fiscal_year DESC;
+
+-- Each year beverages had the highest revenue, followed by condiments and confections
+
+-- Assess profit margin for each category per year
+with money as (
+    select
+        categoryname,
+        extract(year from o.orderdate) as fiscal_year,
+        sum(((od.unitprice * (1-od.discount))) * od.quantity) as total_revenue,
+        sum(p.unitprice * od.quantity) as total_cogs
+    from categories c
+    join products p on c.categoryid=p.categoryid
+    join order_details od on p.productid=od.productid
+    join orders o on od.orderid=o.orderid
+    group by
+        categoryname,
+        fiscal_year
+)
+select
+    categoryname,
+    fiscal_year,
+    round(((total_revenue - total_cogs) / total_revenue) * 100) as profit_margin
+from money
+group by categoryname, fiscal_year, total_revenue, total_cogs
+order by profit_margin desc
+
+--Customers
+select *
+from customers
+
+-- customers and revenue per country
+select
+    country,
+    count(distinct(c.customerid)) as num_customers,
+    round(sum(((od.unitprice * (1-od.discount))) * od.quantity)) as total_revenue
+from customers c
+join orders o on c.customerid=o.customerid
+join order_details od on o.orderid=od.orderid
+group by country
+order by total_revenue desc, num_customers
+
+--Most ordered product for each country
+with ranked_products as (
+    select
+        productname,
+        categoryname,
+        country,
+        sum(od.quantity) as total_sold,
+        rank() over (partition by country order by sum(od.quantity) desc) as product_rank
+    from customers c
+    join orders o on c.customerid=o.customerid
+    join order_details od on o.orderid=od.orderid
+    join products p on od.productid=p.productid
+    join categories ca on p.categoryid=ca.categoryid
+    group by productname, country, categoryname
+)
+select country, productname, categoryname
+from ranked_products
+where product_rank = 1
+order by country
